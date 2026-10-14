@@ -28,6 +28,12 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'audit' => [
+        'url' => env('AUDIT_SERVICE_URL', 'http://localhost:4000'),
+        'secret' => env('AUDIT_SIGNING_SECRET'),
+        'timeout' => (int) env('AUDIT_SERVICE_TIMEOUT', 5),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
