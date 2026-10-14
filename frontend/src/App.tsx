@@ -1,9 +1,28 @@
+import { Navigate, Route, Routes } from 'react-router'
+import { RequireAuth } from './auth/RequireAuth'
+import { AppLayout } from './components/AppLayout'
+import { RequestDrawer } from './components/RequestDrawer'
+import { LoginPage } from './pages/LoginPage'
+import { RequestsPage } from './pages/RequestsPage'
+
 function App() {
   return (
-    <main className="min-h-screen bg-slate-50 p-8 text-slate-900">
-      <h1 className="text-2xl font-semibold">Quote Request Manager</h1>
-      <p className="mt-2 text-slate-600">Staff dashboard</p>
-    </main>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/requests"
+        element={
+          <RequireAuth>
+            <AppLayout>
+              <RequestsPage />
+            </AppLayout>
+          </RequireAuth>
+        }
+      >
+        <Route path=":id" element={<RequestDrawer />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/requests" replace />} />
+    </Routes>
   )
 }
 
