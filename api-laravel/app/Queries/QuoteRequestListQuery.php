@@ -6,7 +6,14 @@ use App\Models\QuoteRequest;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 /**
- * Builds the staff list: search, filters, sorting and pagination.
+ * Builds the database query for the staff list: search, filters, sorting and pages.
+ * Kept out of the controller so the controller stays small.
+ *
+ * Speed notes:
+ *   - The migration has indexes like (status, created_at) that match these filters,
+ *     so MySQL can jump straight to the right rows instead of reading the whole table.
+ *   - The assignee is loaded together with the requests (eager loading), so 15 rows
+ *     cost 2 queries, not 16. This avoids the "N+1 queries" problem.
  */
 class QuoteRequestListQuery
 {

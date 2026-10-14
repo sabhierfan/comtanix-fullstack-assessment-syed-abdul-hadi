@@ -6,6 +6,13 @@ use App\Enums\QuoteStatus;
 use Illuminate\Http\JsonResponse;
 use RuntimeException;
 
+/**
+ * Thrown by the workflow when someone tries a move that is not allowed,
+ * e.g. "new" straight to "quoted".
+ *
+ * Laravel calls render() automatically and sends this as a 422 response,
+ * in the same shape as normal validation errors, so the frontend can show it.
+ */
 class InvalidStatusTransition extends RuntimeException
 {
     public function __construct(
@@ -28,6 +35,7 @@ class InvalidStatusTransition extends RuntimeException
                         : $this->getMessage().' The request is already closed.',
                 ],
             ],
+            // Extra help for the client: where we are, and where we can go.
             'current_status' => $this->from->value,
             'allowed_transitions' => $allowed,
         ], 422);

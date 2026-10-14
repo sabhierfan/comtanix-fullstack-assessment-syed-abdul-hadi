@@ -13,8 +13,14 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Proxies the audit trail from the Node service so the browser never holds an
- * audit-service credential and the usual Sanctum auth + policies apply.
+ * GET /api/quote-requests/{id}/audit-events: the history shown in the dashboard's timeline.
+ *
+ * This is a "proxy": the browser asks Laravel, and Laravel asks the Node audit service.
+ * Why not let the browser call Node directly?
+ *   - The browser never sees the audit service's secret key.
+ *   - The same login and permission checks as the rest of the API apply.
+ *   - Laravel can add the actor's name (Node only knows user ids).
+ *   - If Node is down, we return a clean 503 and the rest of the page still works.
  */
 class QuoteRequestAuditController extends Controller
 {
@@ -39,7 +45,7 @@ class QuoteRequestAuditController extends Controller
             return response()->json(['message' => 'The audit trail is temporarily unavailable. Please try again shortly.'], 503);
         }
 
-        // Resolve actor names in one query so the timeline can show who did what.
+        // Turn actor ids into names with ONE query (not one query per event).
         $actorIds = collect($result['data'])->pluck('actorId')->filter()->unique();
         $actors = User::whereIn('id', $actorIds)->get(['id', 'name'])->keyBy('id');
 

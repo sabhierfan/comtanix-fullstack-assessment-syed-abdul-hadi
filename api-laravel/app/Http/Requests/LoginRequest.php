@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 
+/** Checks the login form: email and password must be present and not too long. */
 class LoginRequest extends FormRequest
 {
     public function authorize(): bool

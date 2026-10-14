@@ -7,6 +7,8 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
+ * What a user looks like in JSON. The password and tokens are never included.
+ *
  * @mixin User
  */
 class UserResource extends JsonResource

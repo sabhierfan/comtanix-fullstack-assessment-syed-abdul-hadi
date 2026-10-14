@@ -8,23 +8,26 @@ use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
 /**
- * HTTP client for the Node audit service.
+ * Talks to the Node audit service over HTTP.
+ *
+ * - send()       : POST /events  (used by the queue job, signed with HMAC)
+ * - listEvents() : GET  /events  (used by the dashboard's timeline, with the read key)
  */
 class AuditServiceClient
 {
     public function __construct(
         private readonly string $baseUrl,
-        private readonly ?string $secret,
-        private readonly ?string $readKey,
-        private readonly int $timeout = 5,
+        private readonly ?string $secret,   // AUDIT_SIGNING_SECRET, shared with Node
+        private readonly ?string $readKey,  // AUDIT_READ_API_KEY, shared with Node
+        private readonly int $timeout = 5,  // seconds; never wait forever
     ) {}
 
     /**
-     * Read one quote request's audit trail, newest first.
+     * Read one quote request's history, newest first.
      *
      * @return array{data: list<array<string, mixed>>, meta: array<string, int>}
      *
-     * @throws RequestException|ConnectionException when the audit service is unreachable or errors
+     * @throws RequestException|ConnectionException when the audit service is down or errors
      */
     public function listEvents(int $quoteRequestId, int $page = 1, int $perPage = 20): array
     {
@@ -37,12 +40,19 @@ class AuditServiceClient
                 'page' => $page,
                 'perPage' => $perPage,
             ])
-            ->throw()
+            ->throw()   // turn 4xx/5xx answers into an exception
             ->json();
     }
 
     /**
-     * Send one event. The X-Signature header is an HMAC-SHA256 of the exact raw body.
+     * Send one event to the audit service.
+     *
+     * Steps:
+     *   1. Turn the event into JSON text.
+     *   2. Make a signature of that exact text with the shared secret (HMAC-SHA256).
+     *   3. Send the text, with the signature in the X-Signature header.
+     * The audit service makes the same signature and compares. If someone changed
+     * even one character, or doesn't know the secret, the signatures won't match.
      *
      * @param  array<string, mixed>  $event
      *
@@ -52,6 +62,7 @@ class AuditServiceClient
     {
         $body = json_encode($event, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
+        // withBody() sends our exact $body string, so the signed text = the sent text.
         Http::withBody($body, 'application/json')
             ->withHeaders([
                 'Accept' => 'application/json',
@@ -63,6 +74,7 @@ class AuditServiceClient
             ->throw();
     }
 
+    /** HMAC-SHA256 of the body, as a hex string. */
     public function sign(string $body): string
     {
         if (! $this->secret) {
