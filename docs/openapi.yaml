@@ -1,0 +1,569 @@
+openapi: 3.1.0
+info:
+  title: Quote Request Manager API
+  version: 1.0.0
+  license:
+    name: Proprietary (assessment submission)
+    identifier: LicenseRef-Proprietary
+  description: |
+    Two services:
+
+    * **Laravel API** (`http://localhost:8000/api`): auth, quote requests, workflow. Staff endpoints use a
+      Sanctum bearer token from `POST /login`.
+    * **Audit service** (`http://localhost:4000`): receives HMAC-signed events from Laravel and serves the
+      audit trail. Paths are tagged `Audit service` and declare their own server.
+
+    Errors use one shape across both services: `{ "message": string, "errors"?: { field: string[] } }`.
+
+servers:
+  - url: http://localhost:8000/api
+    description: Laravel API (local)
+
+tags:
+  - name: Auth
+    description: Sanctum token login for staff.
+  - name: Public
+    description: Endpoints that need no login.
+  - name: Quote requests
+    description: Staff and Admin endpoints for the request workflow.
+  - name: Users
+    description: Users for assignment.
+  - name: Audit service
+    description: Node.js service. Called by Laravel only, not by the browser.
+
+paths:
+  /login:
+    post:
+      operationId: login
+      tags: [Auth]
+      summary: Log in and receive a bearer token
+      description: Rate limited to 5/min per email+IP and 20/min per IP.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email, example: admin@comtanix.test }
+                password: { type: string, example: password }
+      responses:
+        '200':
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string, example: '1|Xy...' }
+                  token_type: { type: string, const: Bearer }
+                  expires_at: { type: [string, 'null'], format: date-time }
+                  user: { $ref: '#/components/schemas/User' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /logout:
+    post:
+      operationId: logout
+      tags: [Auth]
+      summary: Revoke the current token
+      responses:
+        '204': { description: Logged out }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /me:
+    get:
+      operationId: getCurrentUser
+      tags: [Auth]
+      summary: Current user
+      responses:
+        '200':
+          description: The authenticated user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /public/quote-requests:
+    post:
+      operationId: submitQuoteRequest
+      tags: [Public]
+      summary: Submit a quote request (no login)
+      description: |
+        Validated and rate limited (5/min and 50/day per IP). `website` is a honeypot: humans never fill it,
+        so a non-empty value gets the same 201 response but nothing is stored. `status` and `assigned_to`
+        are ignored if sent.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [client_name, email, service_type, budget_range, message]
+              properties:
+                client_name: { type: string, minLength: 2, maxLength: 120, example: Jane Prospect }
+                email: { type: string, format: email, maxLength: 191, example: jane@example.com }
+                company: { type: [string, 'null'], maxLength: 150, example: Acme Ltd }
+                service_type: { $ref: '#/components/schemas/ServiceType' }
+                budget_range: { $ref: '#/components/schemas/BudgetRange' }
+                message: { type: string, minLength: 10, maxLength: 5000, example: We need a new customer portal. }
+                website: { type: string, description: Honeypot. Leave empty. }
+      responses:
+        '201':
+          description: Received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: Thank you. Your quote request has been received. }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /quote-requests:
+    get:
+      operationId: listQuoteRequests
+      tags: [Quote requests]
+      summary: List quote requests
+      parameters:
+        - { name: search, in: query, schema: { type: string, maxLength: 100 }, description: 'Matches client name, email or company' }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/QuoteStatus' } }
+        - name: assigned_to
+          in: query
+          description: A user id, or `unassigned`
+          schema:
+            oneOf:
+              - { type: integer }
+              - { type: string, const: unassigned }
+        - { name: service_type, in: query, schema: { $ref: '#/components/schemas/ServiceType' } }
+        - name: sort
+          in: query
+          description: Column, prefixed with `-` for descending
+          schema:
+            type: string
+            default: -created_at
+            enum: [created_at, -created_at, updated_at, -updated_at, client_name, -client_name, status, -status, budget_range, -budget_range]
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: per_page, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 15 } }
+      responses:
+        '200':
+          description: A page of quote requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/QuoteRequest' }
+                  links: { type: object }
+                  meta:
+                    type: object
+                    properties:
+                      current_page: { type: integer }
+                      last_page: { type: integer }
+                      per_page: { type: integer }
+                      total: { type: integer }
+                      from: { type: [integer, 'null'] }
+                      to: { type: [integer, 'null'] }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /quote-requests/{id}:
+    parameters:
+      - $ref: '#/components/parameters/QuoteRequestId'
+    get:
+      operationId: getQuoteRequest
+      tags: [Quote requests]
+      summary: Quote request details
+      responses:
+        '200':
+          description: The quote request
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QuoteRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      operationId: deleteQuoteRequest
+      tags: [Quote requests]
+      summary: Soft-delete a quote request (Admin only)
+      description: Sets `deleted_at`; the request disappears from the API and a `quote_request.deleted` audit event is queued.
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /quote-requests/{id}/status:
+    parameters:
+      - $ref: '#/components/parameters/QuoteRequestId'
+    patch:
+      operationId: updateQuoteRequestStatus
+      tags: [Quote requests]
+      summary: Change status
+      description: |
+        Allowed: `new → in_review → quoted → closed`, and `in_review → closed`.
+        Staff can only change requests assigned to them; Admin can change any.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { $ref: '#/components/schemas/QuoteStatus' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QuoteRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: Unknown status, or a transition that is not allowed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Error'
+                  - type: object
+                    properties:
+                      current_status: { $ref: '#/components/schemas/QuoteStatus' }
+                      allowed_transitions:
+                        type: array
+                        items: { $ref: '#/components/schemas/QuoteStatus' }
+              example:
+                message: Cannot change status from "new" to "quoted".
+                errors: { status: ['Cannot change status from "new" to "quoted". Allowed: in_review.'] }
+                current_status: new
+                allowed_transitions: [in_review]
+
+  /quote-requests/{id}/assign:
+    parameters:
+      - $ref: '#/components/parameters/QuoteRequestId'
+    patch:
+      operationId: assignQuoteRequest
+      tags: [Quote requests]
+      summary: Assign or unassign (Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assigned_to]
+              properties:
+                assigned_to: { type: [integer, 'null'], description: 'User id, or null to unassign', example: 2 }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QuoteRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /quote-requests/{id}/audit-events:
+    parameters:
+      - $ref: '#/components/parameters/QuoteRequestId'
+    get:
+      operationId: listQuoteRequestAuditEvents
+      tags: [Quote requests]
+      summary: Audit trail (proxied from the audit service)
+      description: Laravel calls `GET /events` on the audit service with the server-side read key and adds actor names.
+      parameters:
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: per_page, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: Events, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid, description: The eventId }
+                        type: { $ref: '#/components/schemas/AuditEventType' }
+                        actor:
+                          oneOf:
+                            - type: 'null'
+                            - type: object
+                              properties:
+                                id: { type: integer }
+                                name: { type: string }
+                        data: { type: object }
+                        occurred_at: { type: string, format: date-time }
+                  meta: { $ref: '#/components/schemas/AuditPageMeta' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: The audit service is unreachable
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /users:
+    get:
+      operationId: listUsers
+      tags: [Users]
+      summary: Users (for assignee filters and the assign dropdown)
+      responses:
+        '200':
+          description: All users, ordered by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  # ---------------- Audit service (Node.js) ----------------
+
+  /events:
+    servers:
+      - url: http://localhost:4000
+        description: Audit service (local)
+    post:
+      operationId: storeAuditEvent
+      tags: [Audit service]
+      summary: Store an audit event (idempotent)
+      description: |
+        `X-Signature` must be the lowercase hex HMAC-SHA256 of the **raw request body** using the shared
+        `AUDIT_SIGNING_SECRET`. The same `eventId` is stored only once (unique index); repeats return 200.
+      security:
+        - hmacSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuditEventInput' }
+      responses:
+        '201':
+          description: Stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: stored }
+                  eventId: { type: string, format: uuid }
+        '200':
+          description: Already stored (duplicate eventId). Treated as success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: duplicate }
+                  eventId: { type: string, format: uuid }
+        '400': { description: Body is not valid JSON, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { description: Missing or invalid signature, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '413': { description: Body larger than 64 KB, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    get:
+      operationId: listAuditEvents
+      tags: [Audit service]
+      summary: List audit events, newest first
+      security:
+        - auditApiKey: []
+      parameters:
+        - { name: quoteRequestId, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: type, in: query, schema: { $ref: '#/components/schemas/AuditEventType' } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: perPage, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: A page of events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/AuditEventInput'
+                        - type: object
+                          properties:
+                            id: { type: string, description: MongoDB document id }
+                            receivedAt: { type: string, format: date-time }
+                  meta: { $ref: '#/components/schemas/AuditPageMeta' }
+        '401': { description: Missing or invalid API key, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /health:
+    servers:
+      - url: http://localhost:4000
+    get:
+      operationId: auditHealth
+      tags: [Audit service]
+      summary: Liveness check
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: ok }
+
+security:
+  - sanctum: []
+
+components:
+  securitySchemes:
+    sanctum:
+      type: http
+      scheme: bearer
+      description: Token from `POST /login`.
+    hmacSignature:
+      type: apiKey
+      in: header
+      name: X-Signature
+      description: hex(HMAC-SHA256(rawBody, AUDIT_SIGNING_SECRET))
+    auditApiKey:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: AUDIT_READ_API_KEY. Held by Laravel only.
+
+  parameters:
+    QuoteRequestId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+
+  responses:
+    Unauthenticated:
+      description: Missing, invalid or expired token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { message: Unauthenticated. }
+    Forbidden:
+      description: The user's role does not allow this action
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { message: This action is unauthorized. }
+    NotFound:
+      description: Not found (or soft-deleted)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationError:
+      description: Validation failed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            message: The email field must be a valid email address.
+            errors: { email: [The email field must be a valid email address.] }
+    TooManyRequests:
+      description: Rate limit exceeded (see the Retry-After header)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+
+    Role:
+      type: string
+      enum: [admin, staff]
+    QuoteStatus:
+      type: string
+      enum: [new, in_review, quoted, closed]
+    ServiceType:
+      type: string
+      enum: [web_development, mobile_app, ui_ux_design, cloud_devops, consulting]
+    BudgetRange:
+      type: string
+      enum: [under_5k, 5k_15k, 15k_50k, over_50k]
+    AuditEventType:
+      type: string
+      enum: [quote_request.created, quote_request.status_changed, quote_request.assigned, quote_request.deleted]
+
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/Role' }
+
+    QuoteRequest:
+      type: object
+      properties:
+        id: { type: integer }
+        client_name: { type: string }
+        email: { type: string, format: email }
+        company: { type: [string, 'null'] }
+        service_type: { $ref: '#/components/schemas/ServiceType' }
+        budget_range: { $ref: '#/components/schemas/BudgetRange' }
+        message: { type: string }
+        status: { $ref: '#/components/schemas/QuoteStatus' }
+        allowed_transitions:
+          type: array
+          items: { $ref: '#/components/schemas/QuoteStatus' }
+        assigned_to: { type: [integer, 'null'] }
+        assignee:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/User'
+        can:
+          type: object
+          description: What the current user may do with this request
+          properties:
+            update_status: { type: boolean }
+            assign: { type: boolean }
+            delete: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    AuditEventInput:
+      type: object
+      additionalProperties: false
+      required: [eventId, type, quoteRequestId, actorId, data, occurredAt]
+      properties:
+        eventId: { type: string, format: uuid }
+        type: { type: string, pattern: '^[a-z_]+\.[a-z_]+$', example: quote_request.status_changed }
+        quoteRequestId: { type: integer, minimum: 1, example: 42 }
+        actorId: { type: [integer, 'null'], minimum: 1, description: null for public submissions }
+        data: { type: object, example: { from: new, to: in_review } }
+        occurredAt: { type: string, format: date-time }
+
+    AuditPageMeta:
+      type: object
+      properties:
+        page: { type: integer }
+        perPage: { type: integer }
+        total: { type: integer }
+        lastPage: { type: integer }
