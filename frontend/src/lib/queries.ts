@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { AuditEventPage, Paginated, QuoteRequest, QuoteStatus, User } from '../types'
 import { api } from './api'
 
@@ -46,10 +46,19 @@ export function useUsers() {
   })
 }
 
+/**
+ * The audit trail, loaded one page (20 events) at a time, newest first.
+ * useInfiniteQuery keeps all loaded pages; fetchNextPage() loads the next (older) page.
+ * Without this, a request with more than 20 events would hide its oldest history.
+ */
 export function useAuditEvents(id: number) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['audit-events', id],
-    queryFn: () => api<AuditEventPage>(`/quote-requests/${id}/audit-events`),
+    queryFn: ({ pageParam }) =>
+      api<AuditEventPage>(`/quote-requests/${id}/audit-events`, { query: { page: pageParam, per_page: 20 } }),
+    initialPageParam: 1,
+    // Return the next page number, or undefined when we are on the last page.
+    getNextPageParam: (last) => (last.meta.page < last.meta.lastPage ? last.meta.page + 1 : undefined),
     retry: 1,
   })
 }
