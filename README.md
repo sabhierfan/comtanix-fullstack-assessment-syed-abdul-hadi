@@ -1,5 +1,7 @@
 # Quote Request Manager: Comtanix Full Stack Assessment
 
+[![CI](https://github.com/sabhierfan/comtanix-fullstack-assessment-syed-abdul-hadi/actions/workflows/ci.yml/badge.svg)](https://github.com/sabhierfan/comtanix-fullstack-assessment-syed-abdul-hadi/actions/workflows/ci.yml)
+
 An internal tool where prospects submit quote requests through a public form and staff review, assign and update them. Every important change is recorded in a separate audit service.
 
 | Folder | Stack | Responsibility |
@@ -110,6 +112,8 @@ Seeded rows are inserted directly, so they have no audit history. Events appear 
 | Audit service (12 tests) | `cd audit-service && npm test` | Needs MongoDB from `docker compose`. Uses a separate `audit_service_test` database. |
 | Frontend | `cd frontend && npm run build && npm run lint` | Type check, production build and lint. No frontend tests (optional in the brief). |
 
+**CI:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs all of the above on every push to `main` and every pull request. That's three jobs: Laravel (with a Pint style check), the audit service (with a MongoDB 7 service container), and the frontend.
+
 What they cover:
 
 - **Laravel:** login, rate limiting and token revocation; public validation, honeypot, field injection and rate limiting; every allowed and forbidden status transition; Staff vs Admin rules (only own requests, no self-assignment, Admin-only delete); list filters and pagination with no N+1 queries; event payloads on create, status change, assign and delete; the job's HMAC signature, retry on 5xx and fail-fast on 4xx; and the audit proxy, including the 503 when the service is down.
@@ -167,9 +171,9 @@ Single-filter lists sorted by newest stay fast: the composite indexes `(status, 
 - *Other:* CORS is limited to configured origins, every API error is returned as JSON, and passwords are hashed with bcrypt. Set `TRUSTED_PROXIES` behind a load balancer so per-IP rate limits see the real client IP. Expired tokens are deleted daily by `sanctum:prune-expired` (needs `php artisan schedule:run` in cron).
 
 **What I cut or simplified, and what I'd build next**
-- Cut: frontend tests, Docker images for the apps (only the databases are in Compose), CI, refresh tokens, and per-user rate limits on staff actions.
+- Cut: frontend tests, Docker images for the apps (only the databases are in Compose), refresh tokens, and per-user rate limits on staff actions.
 - Simplified: the database queue instead of Redis/Horizon, `LIKE` search, offset pagination, and an API-key-protected read endpoint instead of signed reads.
-- Next: a GitHub Actions workflow running all three test suites with MySQL/Mongo service containers; Docker images for the API and audit service; cursor pagination and full-text search; cookie-based SPA auth; Playwright tests for the main dashboard flows; and an outbox table with a relay so the queue backend could be changed without losing atomicity.
+- Next: running the Laravel suite in CI against MySQL as well as SQLite; Docker images for the API and audit service; cursor pagination and full-text search; cookie-based SPA auth; Playwright tests for the main dashboard flows; and an outbox table with a relay so the queue backend could be changed without losing atomicity.
 
 ## AI tool usage
 
