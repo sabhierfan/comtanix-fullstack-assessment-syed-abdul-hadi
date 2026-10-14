@@ -14,6 +14,8 @@ async function main(): Promise<void> {
     console.log(`Audit service listening on port ${config.port}`);
   });
 
+  // On Ctrl+C or a stop signal: stop taking new requests, finish the current ones,
+  // close the database connection, then exit.
   const shutdown = () => {
     server.close(() => {
       void mongoose.disconnect().then(() => process.exit(0));

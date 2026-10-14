@@ -1,5 +1,6 @@
 import 'dotenv/config';
 
+/** Read a setting from .env. If it's missing, stop at startup with a clear error (fail fast). */
 function required(name: string): string {
   const value = process.env[name];
   if (!value) {
