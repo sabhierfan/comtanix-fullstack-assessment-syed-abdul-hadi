@@ -1,14 +1,26 @@
 import mongoose from 'mongoose';
 import { createApp } from './app.js';
-import { config } from './config.js';
+import { loadConfig } from './config.js';
+import { AuditEvent } from './models/AuditEvent.js';
 
 async function main(): Promise<void> {
-  await mongoose.connect(config.mongoUri);
+  const config = loadConfig();
 
-  const app = createApp();
-  app.listen(config.port, () => {
+  await mongoose.connect(config.mongoUri);
+  // Build indexes before accepting traffic: the unique eventId index is what makes POST /events idempotent.
+  await AuditEvent.init();
+
+  const server = createApp(config).listen(config.port, () => {
     console.log(`Audit service listening on port ${config.port}`);
   });
+
+  const shutdown = () => {
+    server.close(() => {
+      void mongoose.disconnect().then(() => process.exit(0));
+    });
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 }
 
 main().catch((error) => {
