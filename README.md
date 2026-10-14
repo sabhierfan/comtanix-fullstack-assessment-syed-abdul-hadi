@@ -22,14 +22,33 @@ Browser ──► Laravel API ──(DB transaction: change + queued job)──�
            MongoDB
 ```
 
-## Prerequisites
+## Quick start: everything in Docker (one command)
+
+Only Docker is needed:
+
+```bash
+docker compose --profile app up -d --build --wait
+```
+
+| Service | URL / role |
+|---|---|
+| Dashboard | http://localhost:5173 (log in with a [seeded account](#seeded-logins)) |
+| Laravel API | http://localhost:8000/api (runs migrations and seeds on first start) |
+| Audit service | http://localhost:4000 (`/health` reports MongoDB status) |
+| `queue` | `php artisan queue:work`: delivers audit events |
+| `scheduler` | `php artisan schedule:work`: daily expired-token clean-up |
+| `secrets` | Runs once: generates `APP_KEY`, `AUDIT_SIGNING_SECRET` and `AUDIT_READ_API_KEY` into a private volume shared by Laravel and Node, so no secret is committed |
+
+Stop with `docker compose --profile app down` (add `-v` to delete the data). The images are for local review: the API uses `php artisan serve`. In production I would use PHP-FPM or FrankenPHP behind nginx, `composer install --no-dev`, and real secret management.
+
+## Prerequisites (running without Docker)
 
 - PHP 8.3+ with `pdo_mysql`, `pdo_sqlite`, `mbstring`, `openssl`, `intl`
 - Composer 2
 - Node.js 20+
 - Docker (runs MySQL and MongoDB)
 
-## Setup
+## Setup (running without Docker)
 
 ### 1. Databases
 
@@ -108,16 +127,24 @@ Seeded rows are inserted directly, so they have no audit history. Events appear 
 
 | Part | Command | Notes |
 |---|---|---|
-| Laravel (40 tests) | `cd api-laravel && php artisan test` | SQLite in memory; no MySQL needed. HTTP to the audit service is faked. |
-| Audit service (12 tests) | `cd audit-service && npm test` | Needs MongoDB from `docker compose`. Uses a separate `audit_service_test` database. |
-| Frontend | `cd frontend && npm run build && npm run lint` | Type check, production build and lint. No frontend tests (optional in the brief). |
+| Laravel (43 tests) | `cd api-laravel && php artisan test` | SQLite in memory by default; no MySQL needed. HTTP to the audit service is faked. |
+| Laravel on MySQL | `DB_CONNECTION=mysql DB_DATABASE=quote_manager_test php artisan test` | Same tests on real MySQL, where row locks actually apply. Create the `quote_manager_test` database first. |
+| Audit service (13 tests) | `cd audit-service && npm test` | Needs MongoDB from `docker compose`. Uses a separate `audit_service_test` database. |
+| Frontend (10 tests) | `cd frontend && npm test && npm run lint && npm run build` | Vitest + Testing Library, lint, type check and production build. |
 
-**CI:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs all of the above on every push to `main` and every pull request. That's three jobs: Laravel (with a Pint style check), the audit service (with a MongoDB 7 service container), and the frontend.
+**CI:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to `main` and every pull request, as four jobs:
+- Laravel on SQLite, with a Pint style check
+- Laravel on a MySQL 8.4 service container
+- the audit service, with a MongoDB 7 service container
+- the frontend
+
+`main` is protected: changes go through a pull request, and the CI checks must pass.
 
 What they cover:
 
 - **Laravel:** login, rate limiting and token revocation; public validation, honeypot, field injection and rate limiting; every allowed and forbidden status transition; Staff vs Admin rules (only own requests, no self-assignment, Admin-only delete); list filters and pagination with no N+1 queries; event payloads on create, status change, assign and delete; the job's HMAC signature, retry on 5xx and fail-fast on 4xx; and the audit proxy, including the 503 when the service is down.
-- **Audit service:** missing, wrong-secret and tampered signatures rejected; valid events stored; the same `eventId` stored once, including 5 concurrent copies; validation; `GET /events` auth, filters, ordering and pagination.
+- **Audit service:** missing, wrong-secret and tampered signatures rejected; valid events stored; the same `eventId` stored once, including 5 concurrent copies; validation; `GET /events` auth, filters, ordering and pagination; health check.
+- **Frontend:** the API client (token, query building, 422 field errors, sign-out on 401, error reference on 5xx, network failure), the login flow (redirect to login, error display, redirect back after login, session saved) and the audit event descriptions.
 
 ## API
 
@@ -168,12 +195,12 @@ Single-filter lists sorted by newest stay fast: the composite indexes `(status, 
 - *Replay attacks:* a captured, validly signed request can only re-deliver the same `eventId`, which is stored once, so replay can't create or change records. Not done: a signed timestamp header with a freshness window (it has to allow for retries up to ~40 min later) and key rotation with a key id.
 - *Race conditions:* every change locks the row (`SELECT … FOR UPDATE`), then checks the status rule **and the permission again** on the fresh row. If an admin reassigns a request while a staff member is saving, the staff member gets a 403; two people can't both pass a status check. Duplicate events are blocked by MongoDB's unique `eventId` index, even when copies arrive at the same time.
 - *Login:* the same message and roughly the same response time for "unknown email" and "wrong password" (a dummy bcrypt check runs when the email doesn't exist), so emails can't be discovered.
-- *Other:* CORS is limited to configured origins, every API error is returned as JSON, and passwords are hashed with bcrypt. Set `TRUSTED_PROXIES` behind a load balancer so per-IP rate limits see the real client IP. Expired tokens are deleted daily by `sanctum:prune-expired` (needs `php artisan schedule:run` in cron).
+- *Other:* CORS is limited to configured origins, every API error is returned as JSON, and passwords are hashed with bcrypt. Set `TRUSTED_PROXIES` behind a load balancer so per-IP rate limits see the real client IP. Expired tokens are deleted daily by `sanctum:prune-expired` (the Docker `scheduler` container runs it; elsewhere, `php artisan schedule:run` in cron). Every API response carries an `X-Request-Id` that also appears in all log lines for that request; the dashboard shows it as a reference on server errors.
 
 **What I cut or simplified, and what I'd build next**
-- Cut: frontend tests, Docker images for the apps (only the databases are in Compose), refresh tokens, and per-user rate limits on staff actions.
+- Cut: refresh tokens, per-user rate limits on staff actions, end-to-end browser tests, and a production-grade web server image (the Docker API image uses `php artisan serve`).
 - Simplified: the database queue instead of Redis/Horizon, `LIKE` search, offset pagination, and an API-key-protected read endpoint instead of signed reads.
-- Next: running the Laravel suite in CI against MySQL as well as SQLite; Docker images for the API and audit service; cursor pagination and full-text search; cookie-based SPA auth; Playwright tests for the main dashboard flows; and an outbox table with a relay so the queue backend could be changed without losing atomicity.
+- Next: cursor pagination and full-text search; cookie-based SPA auth; Playwright tests for the main dashboard flows; and an outbox table with a relay so the queue backend could be changed without losing atomicity.
 
 ## AI tool usage
 

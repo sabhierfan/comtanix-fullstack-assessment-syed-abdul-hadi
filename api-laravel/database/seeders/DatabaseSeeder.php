@@ -15,6 +15,14 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        // Safe to run more than once (the Docker setup seeds on every start):
+        // if users already exist, the database was seeded before, so do nothing.
+        if (User::query()->exists()) {
+            $this->command?->info('Database already seeded, skipping.');
+
+            return;
+        }
+
         User::factory()->admin()->create([
             'name' => 'Admin User',
             'email' => 'admin@comtanix.test',
