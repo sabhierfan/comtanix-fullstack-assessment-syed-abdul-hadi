@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\PublicQuoteRequestController;
+use App\Http\Controllers\QuoteRequestAuditController;
 use App\Http\Controllers\QuoteRequestController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
@@ -24,4 +25,5 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::patch('/quote-requests/{quoteRequest}/status', [QuoteRequestController::class, 'updateStatus']);
     Route::patch('/quote-requests/{quoteRequest}/assign', [QuoteRequestController::class, 'assign']);
     Route::delete('/quote-requests/{quoteRequest}', [QuoteRequestController::class, 'destroy']);
+    Route::get('/quote-requests/{quoteRequest}/audit-events', [QuoteRequestAuditController::class, 'index']);
 });

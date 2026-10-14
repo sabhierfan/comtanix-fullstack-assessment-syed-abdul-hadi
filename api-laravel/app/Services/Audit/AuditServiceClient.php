@@ -2,6 +2,7 @@
 
 namespace App\Services\Audit;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -14,8 +15,31 @@ class AuditServiceClient
     public function __construct(
         private readonly string $baseUrl,
         private readonly ?string $secret,
+        private readonly ?string $readKey,
         private readonly int $timeout = 5,
     ) {}
+
+    /**
+     * Read one quote request's audit trail, newest first.
+     *
+     * @return array{data: list<array<string, mixed>>, meta: array<string, int>}
+     *
+     * @throws RequestException|ConnectionException when the audit service is unreachable or errors
+     */
+    public function listEvents(int $quoteRequestId, int $page = 1, int $perPage = 20): array
+    {
+        return Http::acceptJson()
+            ->withHeaders(['X-Api-Key' => (string) $this->readKey])
+            ->connectTimeout(2)
+            ->timeout($this->timeout)
+            ->get($this->baseUrl.'/events', [
+                'quoteRequestId' => $quoteRequestId,
+                'page' => $page,
+                'perPage' => $perPage,
+            ])
+            ->throw()
+            ->json();
+    }
 
     /**
      * Send one event. The X-Signature header is an HMAC-SHA256 of the exact raw body.

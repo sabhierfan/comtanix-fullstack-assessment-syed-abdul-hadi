@@ -30,6 +30,7 @@
         <env name="QUEUE_CONNECTION" value="null"/>
         <env name="AUDIT_SERVICE_URL" value="http://audit.test"/>
         <env name="AUDIT_SIGNING_SECRET" value="test-secret"/>
+        <env name="AUDIT_READ_API_KEY" value="test-read-key"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>

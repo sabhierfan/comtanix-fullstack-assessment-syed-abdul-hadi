@@ -20,6 +20,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(AuditServiceClient::class, fn () => new AuditServiceClient(
             rtrim((string) config('services.audit.url'), '/'),
             config('services.audit.secret'),
+            config('services.audit.read_key'),
             (int) config('services.audit.timeout'),
         ));
     }
