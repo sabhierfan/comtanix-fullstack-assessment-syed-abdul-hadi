@@ -127,6 +127,15 @@ describe('POST /events validation', () => {
   });
 });
 
+describe('GET /health', () => {
+  it('reports ok when MongoDB is connected', async () => {
+    const res = await request(app).get('/health');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: 'ok', mongo: 'up' });
+  });
+});
+
 describe('GET /events', () => {
   async function seed() {
     await AuditEvent.create([

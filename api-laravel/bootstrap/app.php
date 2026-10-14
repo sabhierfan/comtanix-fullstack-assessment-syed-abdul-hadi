@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\ForceJsonResponse;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -16,6 +17,9 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // Every /api request answers in JSON, even if the client forgot the Accept header.
         $middleware->prependToGroup('api', ForceJsonResponse::class);
+
+        // Every /api request gets an id that appears in all its log lines (see AssignRequestId).
+        $middleware->prependToGroup('api', AssignRequestId::class);
 
         // When the app runs behind a load balancer or proxy, set TRUSTED_PROXIES
         // (e.g. "10.0.0.0/8" or "*"). Then $request->ip() is the real visitor IP,

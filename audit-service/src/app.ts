@@ -1,4 +1,5 @@
 import express, { type ErrorRequestHandler, type Express } from 'express';
+import mongoose from 'mongoose';
 import type { AppConfig } from './config.js';
 import { HttpError } from './errors.js';
 import { eventsRouter } from './routes/events.js';
@@ -13,9 +14,12 @@ export function createApp(config: AppConfig): Express {
   // Don't tell visitors we run Express (less info for attackers).
   app.disable('x-powered-by');
 
-  // Simple "are you alive?" check.
+  // Health check for load balancers / Docker. "ok" only when MongoDB is connected too;
+  // otherwise 503, so traffic isn't sent to an instance that can't save events.
+  // (readyState 1 = connected)
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok' });
+    const dbUp = mongoose.connection.readyState === 1;
+    res.status(dbUp ? 200 : 503).json({ status: dbUp ? 'ok' : 'unavailable', mongo: dbUp ? 'up' : 'down' });
   });
 
   app.use(eventsRouter(config));

@@ -1,8 +1,14 @@
-# Local databases for the Quote Request Manager.
+# Quote Request Manager: local environment.
+#
+#   docker compose up -d --wait                 -> only the databases (for running the apps on your machine)
+#   docker compose --profile app up -d --build  -> EVERYTHING: databases, API, queue worker,
+#                                                  scheduler, audit service and dashboard
+#
 # Values below are development-only defaults; override them in a root .env file (see .env.example).
 name: comtanix
 
 services:
+  # ---------------- Databases (always started) ----------------
   mysql:
     image: mysql:8.4
     restart: unless-stopped
@@ -38,6 +44,128 @@ services:
       timeout: 5s
       retries: 20
 
+  # ---------------- Apps (only with --profile app) ----------------
+
+  # Runs once: creates random secrets in a shared volume on the first start,
+  # so Laravel and the audit service share the same values and none are committed.
+  secrets:
+    image: alpine:3.20
+    profiles: [app]
+    volumes:
+      - secrets:/secrets
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        cd /secrets
+        [ -s app_key ] || echo "base64:$$(head -c 32 /dev/urandom | base64)" > app_key
+        [ -s signing_secret ] || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > signing_secret
+        [ -s read_api_key ] || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > read_api_key
+        chmod 644 app_key signing_secret read_api_key
+        echo "secrets ready"
+
+  # Laravel API on http://localhost:8000 (also runs migrations + seed on start).
+  api:
+    build: ./api-laravel
+    image: comtanix-api
+    profiles: [app]
+    restart: unless-stopped
+    environment: &laravel-env
+      APP_NAME: Quote Request Manager
+      APP_ENV: local
+      APP_DEBUG: "false"
+      APP_URL: http://localhost:8000
+      LOG_CHANNEL: stderr
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE:-quote_manager}
+      DB_USERNAME: ${MYSQL_USER:-quote_user}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-quote_password}
+      QUEUE_CONNECTION: database
+      CACHE_STORE: database
+      SESSION_DRIVER: database
+      AUDIT_SERVICE_URL: http://audit:4000
+      CORS_ALLOWED_ORIGINS: http://localhost:5173
+      PHP_CLI_SERVER_WORKERS: 4
+      RUN_MIGRATIONS: "1"
+    volumes:
+      - secrets:/secrets:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql: { condition: service_healthy }
+      secrets: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1:8000/up') === false ? 1 : 0);"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # Delivers audit events from the jobs table to the audit service (retries with backoff).
+  queue:
+    image: comtanix-api
+    profiles: [app]
+    restart: unless-stopped
+    environment:
+      <<: *laravel-env
+      RUN_MIGRATIONS: "0"
+    volumes:
+      - secrets:/secrets:ro
+    command: ["php", "artisan", "queue:work", "--tries=8", "--sleep=1"]
+    depends_on:
+      api: { condition: service_healthy }
+
+  # Runs scheduled tasks (daily clean-up of expired login tokens).
+  scheduler:
+    image: comtanix-api
+    profiles: [app]
+    restart: unless-stopped
+    environment:
+      <<: *laravel-env
+      RUN_MIGRATIONS: "0"
+    volumes:
+      - secrets:/secrets:ro
+    command: ["php", "artisan", "schedule:work"]
+    depends_on:
+      api: { condition: service_healthy }
+
+  # Node audit service on http://localhost:4000.
+  audit:
+    build: ./audit-service
+    profiles: [app]
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:-audit_user}:${MONGO_ROOT_PASSWORD:-audit_password}@mongo:27017/${MONGO_DATABASE:-audit_service}?authSource=admin
+    volumes:
+      - secrets:/secrets:ro
+    ports:
+      - "4000:4000"
+    depends_on:
+      mongo: { condition: service_healthy }
+      secrets: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Staff dashboard on http://localhost:5173 (static build served by nginx).
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:8000/api
+    profiles: [app]
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      api: { condition: service_healthy }
+
 volumes:
   mysql_data:
   mongo_data:
+  secrets:

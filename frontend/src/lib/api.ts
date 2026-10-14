@@ -11,11 +11,14 @@ const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api').re
 export class ApiError extends Error {
   readonly status: number
   readonly errors: Record<string, string[]>
+  /** The server's X-Request-Id, to find the matching log lines. */
+  readonly requestId: string | null
 
-  constructor(status: number, message: string, errors: Record<string, string[]> = {}) {
+  constructor(status: number, message: string, errors: Record<string, string[]> = {}, requestId: string | null = null) {
     super(message)
     this.status = status
     this.errors = errors
+    this.requestId = requestId
   }
 
   /** First message for a field, if the API rejected it. */
@@ -68,7 +71,6 @@ export async function api<T>(path: string, options: { method?: string; body?: un
   }
 
   // 204 = success with no body (e.g. delete, logout).
-
   if (response.status === 204) return undefined as T
 
   const payload = await response.json().catch(() => ({}))
@@ -77,11 +79,16 @@ export async function api<T>(path: string, options: { method?: string; body?: un
     // 401 while logged in = our token expired or was revoked -> sign out.
     if (response.status === 401 && authToken) onUnauthorized?.()
 
-    const message =
+    const requestId = response.headers.get('X-Request-Id')
+    let message =
       response.status === 429
         ? 'Too many requests. Please wait a moment and try again.'
         : (payload.message as string | undefined) ?? `Request failed (${response.status}).`
-    throw new ApiError(response.status, message, payload.errors ?? {})
+
+    // For server errors, show the request id so support can find the log lines.
+    if (response.status >= 500 && requestId) message += ` (Reference: ${requestId.slice(0, 8)})`
+
+    throw new ApiError(response.status, message, payload.errors ?? {}, requestId)
   }
 
   return payload as T
