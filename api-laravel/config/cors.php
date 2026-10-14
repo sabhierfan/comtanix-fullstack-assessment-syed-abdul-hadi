@@ -26,7 +26,8 @@ return [
 
     'allowed_headers' => ['*'],
 
-    'exposed_headers' => [],
+    // Let the dashboard read the request id (shown as a "reference" on server errors).
+    'exposed_headers' => ['X-Request-Id'],
 
     'max_age' => 0,
 
