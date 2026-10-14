@@ -7,6 +7,11 @@ import type { QuoteRequest } from '../types'
 import { AuditTimeline } from './AuditTimeline'
 import { Button, ErrorState, inputClass, Spinner, StatusBadge } from './ui'
 
+/**
+ * The side panel for one request (/requests/:id).
+ * Shows the details, the actions this user is allowed to do, and the audit timeline.
+ * Closing it goes back to /requests with the same filters.
+ */
 export function RequestDrawer() {
   const { id } = useParams()
   const requestId = Number(id)
@@ -100,6 +105,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
+/**
+ * Status buttons. We don't decide the rules here: the API tells us
+ *   - can.update_status   -> may this user change it at all?
+ *   - allowed_transitions -> which buttons to show.
+ * So if the rules change in Laravel, the buttons follow automatically.
+ */
 function StatusActions({ request }: { request: QuoteRequest }) {
   const mutation = useUpdateStatus(request.id)
   const error = mutation.error instanceof ApiError ? mutation.error : null
@@ -135,6 +146,7 @@ function StatusActions({ request }: { request: QuoteRequest }) {
   )
 }
 
+/** Assign dropdown. Only shown when the API says can.assign (admins). */
 function AssignControl({ request }: { request: QuoteRequest }) {
   const users = useUsers()
   const mutation = useAssign(request.id)

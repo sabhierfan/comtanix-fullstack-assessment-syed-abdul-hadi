@@ -7,6 +7,8 @@ import { AuthProvider } from './auth/AuthContext'
 import { ApiError } from './lib/api'
 import './index.css'
 
+// App start. The order of the wrappers matters:
+// QueryClientProvider (data cache) -> BrowserRouter (URLs) -> AuthProvider (login) -> App (pages).
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

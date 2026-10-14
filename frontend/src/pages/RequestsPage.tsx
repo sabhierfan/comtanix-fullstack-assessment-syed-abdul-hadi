@@ -8,7 +8,12 @@ import { useDebouncedValue } from '../lib/useDebouncedValue'
 /** Every filter lives in the URL, so refresh, back/forward and shared links keep the view. */
 const FILTER_KEYS = ['search', 'status', 'assigned_to', 'service_type', 'sort'] as const
 
+/**
+ * The main screen: filters at the top, the table of requests, and page buttons.
+ * When a row is clicked, the URL becomes /requests/:id and the drawer opens (via <Outlet />).
+ */
 export function RequestsPage() {
+  // The URL's ?query=string is our "state" for filters. Changing it re-runs the list query.
   const [searchParams, setSearchParams] = useSearchParams()
   const { id: openId } = useParams()
 
@@ -35,6 +40,9 @@ export function RequestsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch])
 
+  // Change some filters in the URL. Empty values are removed.
+  // Changing a filter goes back to page 1 (page 5 of the old results may not exist any more).
+  // "replace: true" = don't fill the browser's Back history with every keystroke.
   function updateParams(changes: Record<string, string | null>, resetPage = true) {
     setSearchParams(
       (current) => {

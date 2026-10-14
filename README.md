@@ -106,7 +106,7 @@ Seeded rows are inserted directly, so they have no audit history. Events appear 
 
 | Part | Command | Notes |
 |---|---|---|
-| Laravel (36 tests) | `cd api-laravel && php artisan test` | SQLite in memory; no MySQL needed. HTTP to the audit service is faked. |
+| Laravel (40 tests) | `cd api-laravel && php artisan test` | SQLite in memory; no MySQL needed. HTTP to the audit service is faked. |
 | Audit service (12 tests) | `cd audit-service && npm test` | Needs MongoDB from `docker compose`. Uses a separate `audit_service_test` database. |
 | Frontend | `cd frontend && npm run build && npm run lint` | Type check, production build and lint. No frontend tests (optional in the brief). |
 
@@ -162,7 +162,9 @@ Single-filter lists sorted by newest stay fast: the composite indexes `(status, 
 - *Token storage:* `sessionStorage` (cleared when the tab closes, not shared across tabs). Any JS-readable token is exposed to XSS. The better option is Sanctum's cookie-based SPA auth (httpOnly, SameSite, CSRF), which I left out to keep the setup simple. React escapes output, and there is no `dangerouslySetInnerHTML`.
 - *Event signing:* HMAC-SHA256 over the **raw** bytes, compared in constant time; the body is capped at 64 KB, the schema is strict, and secrets come from env. The read endpoint uses a separate key held only by Laravel, so the browser has no audit credential and the Node service needs no CORS.
 - *Replay attacks:* a captured, validly signed request can only re-deliver the same `eventId`, which is stored once, so replay can't create or change records. Not done: a signed timestamp header with a freshness window (it has to allow for retries up to ~40 min later) and key rotation with a key id.
-- *Other:* CORS is limited to configured origins, every API error is returned as JSON, and passwords are hashed with bcrypt.
+- *Race conditions:* every change locks the row (`SELECT … FOR UPDATE`), then checks the status rule **and the permission again** on the fresh row. If an admin reassigns a request while a staff member is saving, the staff member gets a 403; two people can't both pass a status check. Duplicate events are blocked by MongoDB's unique `eventId` index, even when copies arrive at the same time.
+- *Login:* the same message and roughly the same response time for "unknown email" and "wrong password" (a dummy bcrypt check runs when the email doesn't exist), so emails can't be discovered.
+- *Other:* CORS is limited to configured origins, every API error is returned as JSON, and passwords are hashed with bcrypt. Set `TRUSTED_PROXIES` behind a load balancer so per-IP rate limits see the real client IP. Expired tokens are deleted daily by `sanctum:prune-expired` (needs `php artisan schedule:run` in cron).
 
 **What I cut or simplified, and what I'd build next**
 - Cut: frontend tests, Docker images for the apps (only the databases are in Compose), CI, refresh tokens, and per-user rate limits on staff actions.
