@@ -1,3 +1,10 @@
+/**
+ * The ONE place where the dashboard talks to the Laravel API.
+ * Every screen calls api('/some-path') instead of using fetch() directly, so
+ * adding the token, reading errors and handling 401 happen the same way everywhere.
+ */
+
+// Laravel's address, from frontend/.env (VITE_API_URL).
 const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api').replace(/\/$/, '')
 
 /** Error thrown for every failed request; `errors` holds Laravel's field-level validation messages. */
@@ -17,7 +24,9 @@ export class ApiError extends Error {
   }
 }
 
+// The current login token (set by AuthContext after login / page load).
 let authToken: string | null = null
+// What to do when the API says 401 (AuthContext sets this to "sign out").
 let onUnauthorized: (() => void) | null = null
 
 export function setAuthToken(token: string | null): void {
@@ -31,6 +40,11 @@ export function setUnauthorizedHandler(handler: (() => void) | null): void {
 
 type Query = Record<string, string | number | undefined | null>
 
+/**
+ * Send a request to the API and return the JSON answer.
+ * On any error it throws an ApiError, so screens can show error.message
+ * or a field error like error.field('status').
+ */
 export async function api<T>(path: string, options: { method?: string; body?: unknown; query?: Query } = {}): Promise<T> {
   const url = new URL(API_URL + path)
   for (const [key, value] of Object.entries(options.query ?? {})) {
@@ -49,14 +63,18 @@ export async function api<T>(path: string, options: { method?: string; body?: un
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
     })
   } catch {
+    // fetch() only throws when there is no answer at all (server down, no internet).
     throw new ApiError(0, 'Cannot reach the server. Check your connection and try again.')
   }
+
+  // 204 = success with no body (e.g. delete, logout).
 
   if (response.status === 204) return undefined as T
 
   const payload = await response.json().catch(() => ({}))
 
   if (!response.ok) {
+    // 401 while logged in = our token expired or was revoked -> sign out.
     if (response.status === 401 && authToken) onUnauthorized?.()
 
     const message =

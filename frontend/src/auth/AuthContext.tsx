@@ -4,9 +4,15 @@ import { api, setAuthToken, setUnauthorizedHandler } from '../lib/api'
 import type { LoginResponse, User } from '../types'
 
 /**
- * Token storage: sessionStorage, so the token survives a refresh but is dropped when
- * the tab closes and is not shared with other tabs. It is still readable by JavaScript,
- * so XSS remains the main risk (see README). The token also expires server-side.
+ * Keeps track of who is logged in, for the whole app.
+ * Any component can call useAuth() to get { user, login, logout }.
+ *
+ * Where is the token kept? In sessionStorage:
+ *   - it survives a page refresh,
+ *   - it is deleted when the tab is closed,
+ *   - it is not shared with other tabs.
+ * It is still readable by JavaScript, so XSS is the main risk (see README).
+ * The token also expires on the server after 8 hours.
  */
 const STORAGE_KEY = 'qrm.session'
 
@@ -59,12 +65,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   })
   const [notice, setNotice] = useState<string | null>(null)
 
+  // Sign out on this browser: forget the token, clear saved data, remember why (for the login page).
   const endSession = useCallback(
     (reason: string | null) => {
       setAuthToken(null)
       writeSession(null)
       setSession(null)
       setNotice(reason)
+      // Throw away all cached API data, so the next user never sees the previous user's data.
       queryClient.clear()
     },
     [queryClient],
@@ -103,6 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Ask Laravel for a token, then save it (memory + sessionStorage).
   const login = useCallback(async (email: string, password: string) => {
     const response = await api<LoginResponse>('/login', { method: 'POST', body: { email, password } })
     const next: Session = { token: response.token, expiresAt: response.expires_at, user: response.user }
@@ -112,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(next)
   }, [])
 
+  // Tell Laravel to delete the token, then forget it here too.
   const logout = useCallback(async () => {
     try {
       await api('/logout', { method: 'POST' })

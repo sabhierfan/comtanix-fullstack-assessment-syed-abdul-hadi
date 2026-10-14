@@ -18,13 +18,15 @@ return new class extends Migration
             $table->string('budget_range', 20);
             $table->text('message');
             $table->string('status', 20)->default(QuoteStatus::New->value);
+            // Foreign key: must point to a real user. If that user is deleted, it becomes NULL (unassigned).
             $table->foreignId('assigned_to')->nullable()->constrained('users')->nullOnDelete();
             $table->string('submitted_ip', 45)->nullable();
             $table->timestamps();
             $table->softDeletes();
 
-            // Composite indexes follow the list endpoint: filter by one column, sort by newest.
-            // The assigned_to index is also used by the foreign key.
+            // Indexes are like the index at the back of a book: they let MySQL find rows fast.
+            // Each one matches a list filter + "newest first", e.g. WHERE status = ? ORDER BY created_at.
+            // The (assigned_to, created_at) index is also used by the foreign key above.
             $table->index(['status', 'created_at']);
             $table->index(['assigned_to', 'created_at']);
             $table->index(['service_type', 'created_at']);

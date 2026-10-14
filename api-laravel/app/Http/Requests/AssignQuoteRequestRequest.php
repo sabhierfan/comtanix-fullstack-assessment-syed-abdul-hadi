@@ -5,6 +5,10 @@ namespace App\Http\Requests;
 use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
 
+/**
+ * Checks an "assign" request: only admins (policy), and assigned_to must be
+ * a real user id or null (null = unassign).
+ */
 class AssignQuoteRequestRequest extends FormRequest
 {
     public function authorize(): bool

@@ -10,16 +10,20 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Delivers one audit event to the Node audit service.
+ * A "letter" for the audit service, waiting in the queue (the jobs table).
  *
- * The eventId is fixed when the job is created, so every retry sends the
- * same id and the audit service stores the event only once.
+ * The API request does NOT send it. A separate process, `php artisan queue:work`,
+ * picks it up and calls handle(). So if the audit service is slow or down,
+ * the user of the main API never notices.
+ *
+ * The eventId is chosen when the job is created and never changes. If we send the
+ * same event twice (a retry), the audit service sees the same eventId and stores it once.
  */
 class PublishAuditEvent implements ShouldQueue
 {
     use Queueable;
 
-    /** Attempts before the job lands in failed_jobs (about 1 hour of retrying in total). */
+    /** Try up to 8 times. After that the job goes to the failed_jobs table. */
     public int $tries = 8;
 
     /**
@@ -28,7 +32,9 @@ class PublishAuditEvent implements ShouldQueue
     public function __construct(public readonly array $event) {}
 
     /**
-     * Exponential backoff in seconds between attempts.
+     * How long to wait before each retry, in seconds: 10s, 30s, 1m, 2m, 5m, 10m, 20m.
+     * The wait grows each time ("exponential backoff") so we don't hammer a service
+     * that is down. In total we keep trying for about 38 minutes.
      *
      * @return list<int>
      */
@@ -37,13 +43,15 @@ class PublishAuditEvent implements ShouldQueue
         return [10, 30, 60, 120, 300, 600, 1200];
     }
 
+    /** The queue worker calls this. Laravel passes in the AuditServiceClient for us. */
     public function handle(AuditServiceClient $client): void
     {
         try {
             $client->send($this->event);
         } catch (RequestException $e) {
-            // A 4xx (other than 408/429) means the event itself is rejected, e.g. a bad
-            // signature or invalid payload. Retrying will not help, so fail right away.
+            // The audit service answered with an error code.
+            // 4xx (except 408 timeout / 429 too many requests) means "your event is bad",
+            // e.g. wrong signature. Sending it again won't fix that, so stop now.
             $status = $e->response->status();
             if ($status >= 400 && $status < 500 && ! in_array($status, [408, 429], true)) {
                 $this->fail($e);
@@ -51,10 +59,13 @@ class PublishAuditEvent implements ShouldQueue
                 return;
             }
 
+            // 5xx = their problem, maybe temporary. Throw so the queue retries later.
             throw $e;
         }
+        // Network errors (service down) also throw, and the queue retries them too.
     }
 
+    /** Called once when the job has failed for good. We log it so someone can look. */
     public function failed(?Throwable $exception): void
     {
         Log::error('Audit event could not be delivered', [

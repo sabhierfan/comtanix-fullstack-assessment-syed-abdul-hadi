@@ -2,6 +2,15 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import type { AuditEventPage, Paginated, QuoteRequest, QuoteStatus, User } from '../types'
 import { api } from './api'
 
+/**
+ * All data loading and saving for the dashboard, using TanStack Query (React Query).
+ *
+ * useQuery    = load data. It gives us isPending / isError / data, caches the result,
+ *               and reloads when the "queryKey" changes (e.g. a filter changed).
+ * useMutation = change data (status, assign, delete). After success we update or
+ *               reload the cached data so every screen shows the new values.
+ */
+
 export interface ListParams {
   search?: string
   status?: string
@@ -14,6 +23,7 @@ export interface ListParams {
 
 export function useQuoteRequests(params: ListParams) {
   return useQuery({
+    // The filters are part of the key, so each filter combination is cached separately.
     queryKey: ['quote-requests', params],
     queryFn: () => api<Paginated<QuoteRequest>>('/quote-requests', { query: { ...params } }),
     // Keep the current page visible while the next one loads.

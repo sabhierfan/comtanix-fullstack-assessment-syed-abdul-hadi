@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+/**
+ * The shape an incoming event must have (checked with the "zod" library).
+ * .strict() = any extra, unknown field is rejected.
+ */
 export const eventSchema = z
   .object({
     eventId: z.uuid(),
@@ -16,6 +20,10 @@ export const eventSchema = z
 
 export type IncomingEvent = z.infer<typeof eventSchema>;
 
+/**
+ * Query string for GET /events. URL values are text, so z.coerce turns "2" into 2.
+ * perPage is capped at 100 so nobody can ask for a huge page.
+ */
 export const listQuerySchema = z.object({
   quoteRequestId: z.coerce.number().int().positive().optional(),
   type: z.string().max(100).optional(),

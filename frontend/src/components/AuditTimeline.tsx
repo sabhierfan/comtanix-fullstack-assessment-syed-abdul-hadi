@@ -3,6 +3,11 @@ import { useAuditEvents, useUsers } from '../lib/queries'
 import type { AuditEvent, QuoteStatus } from '../types'
 import { EmptyState, ErrorState, Spinner } from './ui'
 
+/**
+ * The history list for one request. Loaded from Laravel's proxy endpoint
+ * (/api/quote-requests/:id/audit-events), which reads from the Node audit service.
+ * Events are delivered by a background worker, so a new event can take a few seconds to show.
+ */
 export function AuditTimeline({ quoteRequestId }: { quoteRequestId: number }) {
   const events = useAuditEvents(quoteRequestId)
   const users = useUsers()
