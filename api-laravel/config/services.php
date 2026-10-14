@@ -31,6 +31,7 @@ return [
     'audit' => [
         'url' => env('AUDIT_SERVICE_URL', 'http://localhost:4000'),
         'secret' => env('AUDIT_SIGNING_SECRET'),
+        'read_key' => env('AUDIT_READ_API_KEY'),
         'timeout' => (int) env('AUDIT_SERVICE_TIMEOUT', 5),
     ],
 
