@@ -199,12 +199,14 @@ Cut: refresh tokens, browser end-to-end tests, and a production web server image
 
 ## AI tool usage
 
-I used **Claude Code** (Anthropic's AI coding assistant, in the Claude desktop app) throughout this assessment:
+I used **Claude Code** (Anthropic’s AI coding assistant, through the Claude desktop app) as a development aid during this assessment. I was responsible for the overall implementation, technical decisions, reviewing the generated code, and verifying that the solution met the requirements.
 
-- **Planning:** reading the brief, drafting the clarification questions to the reviewer, and splitting the work into Parts A–E.
-- **Environment:** installing PHP 8.4 and Composer, and scaffolding the three projects and `docker-compose.yml`.
-- **Implementation:** code for all three services (Laravel API, Node audit service, React dashboard).
-- **Tests and verification:** writing the Laravel and Node tests, the end-to-end outage/recovery check, and browser testing of the dashboard.
-- **Docs and Git:** commit messages, pull request descriptions, this README and the OpenAPI file.
+AI assistance was used in the following areas:
 
-I made or confirmed the key decisions: the clarifications with the reviewer (public repository, Admin-only assignment, soft delete), the Git identity, and the merge flow. All code was run and checked with the test suites, a manual end-to-end check (including stopping and restarting the audit service) and the dashboard in a browser.
+- **Planning and architecture:** Assisting with breaking down the assessment into manageable parts, reviewing requirements, and organizing the project structure.
+- **Implementation:** Assisting with selected code implementations across the Laravel API, Node.js audit service, and React dashboard. I reviewed and adapted the code to fit the project requirements and ensure consistency between services.
+- **Testing and debugging:** Helping write and improve test cases, investigate errors, and identify potential issues during development. I also ran the test suites and manually verified the main workflows.
+
+I made the key technical and project decisions, including the clarification of requirements with the reviewer, role-based access rules, soft-delete behavior, Git workflow, and integration approach between services. I also ran the application, checked the test results, performed an end-to-end outage and recovery check by stopping and restarting the audit service, and tested the dashboard in a browser.
+
+Overall, I used AI as a productivity tool to support development, problem-solving, and documentation rather than relying on it without review. I take responsibility for the submitted solution and am prepared to explain the implementation, discuss the architectural decisions, and make modifications during the follow-up interview.
